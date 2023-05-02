@@ -1,0 +1,503 @@
+---
+title: "Returning IDPs - National Agricultural Census"
+author: "Miguel Gonzalez"
+date: "2023-03-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+```
+
+## Objective
+
+This R markdown has the objective to explore micro data from the Naitonal Agricultural Census carried out in 2014, in order to better understand the situation of returned Internally Displaced Population (IDPs) in rural Colombia. It's important to say that the data from this source probably underestimates the amount of  displaced population in rural Colombia. This is so since respondents may not be willing to reveal their status of IDPs to the pollster.
+
+The analysis will be divided into 4 sections: the first section will analyze general time and geographical trends of rural IDPs in 2014. Section two analyses the case of returned IDPs. Section three explores the relation between poverty and returning IDPs at the municipal level, and section four presents the main agricultural characteristics of these households.
+
+## 1. Forced displacement
+
+1. Load households data.
+
+```{r cars, include=FALSE}
+library(haven)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+source("~/Semestre 2023-I/Skills/Data/green_theme.R")
+```
+
+
+```{r, eval=FALSE}
+path <- "~/Semestre 2023-I/Skills/Data/CNE-2014/Total_nacional(spss)/Total_nacional(spss)/Total_nacional/S15H(Hogares).sav"
+households <- read_sav(path)
+```
+
+2. Second we will filter the data based on question P_S15P179_SP1 and P_S15P179_SP3 asked to respondents in households section. They are asked whether they or someone else belonging to the household  has suffered from forced displacement (P_S15P179_SP1) and/or forced abandonment of land (P_S15P179_SP3). These questions allow the identification of internally displaced households in the data.
+
+```{r, eval=FALSE}
+# Create a dummy variable indicating whether the household was displaced, and a household identifier.
+households <- households %>% mutate(disp =  case_when(
+  P_S15P179_SP1 == 1 | P_S15P179_SP3 == 1 ~ 1,
+  is.na(P_S15P179_SP1) & is.na(P_S15P179_SP3) ~ 0
+), cod_house = paste0(UC_UO,ENCUESTA, COD_VEREDA, ITER_HG), ret = case_when(
+  P_S15P180 == 1 ~ 1,
+  P_S15P180 == 2 ~ 0
+))
+
+# Filter by dis to get displaced households dataset.
+disp_households <- households %>% filter(disp == 1)
+ret_disp_households <- disp_households %>%  filter(P_S15P180 == 1)
+
+write.csv(disp_households, "~/Semestre 2023-I/Skills/Data/CNE-2014/disp_households.csv")
+write.csv(ret_disp_households, "~/Semestre 2023-I/Skills/Data/CNE-2014/ret_disp_households.csv")
+```
+
+3. We further filter the dataset to identify displaced households that had been able to return to their land. Question P_S15P180 if the person could return to his land. 1 is for ye, 2 no and 9 no information.
+
+```{r}
+disp_households <- read.csv("~/Semestre 2023-I/Skills/Data/CNE-2014/disp_households.csv")
+prop.table(table(disp_households$P_S15P180))
+```
+Around 44% of displaced households in rural areas where able to return to their land by 2014. 
+
+4. When were these people displaced? Is time of displacement related  to return probability and poverty? Variables: P_S15P179B Year of displacement.  P_S15P180 Could you return to your land? P_S15P177 Do you consider yourself poor?
+
+```{r}
+ret_disp_households <- read.csv("~/Semestre 2023-I/Skills/Data/CNE-2014/ret_disp_households.csv")
+p <- ggplot(subset(disp_households, subset = P_S15P179B != 9999), aes(x = as.numeric(P_S15P179B)))
+p + geom_density(color = group_pal$dark) + green_theme()
+
+```
+
+Most people were displaced around the 2000s. 
+
+
+```{r}
+## Returning households over time.
+p <- ggplot(subset(disp_households, subset = P_S15P179B != 9999 & P_S15P180 != 9), aes(x = as.numeric(P_S15P179B), fill = as_factor(P_S15P180), col = as_factor(P_S15P180)))
+
+p1 <- p + geom_bar(alpha = 0.8) + green_theme() + scale_fill_manual(values = c(group_pal$green, group_pal$red), label = c("Yes", "No")) + scale_color_manual(values = c(group_pal$green, group_pal$red)) +
+  guides(fill = guide_legend(title = "Return"), color = "none") + ylab("IDPs") + xlab("Year of Displacement") +
+  labs(title = "Figure 2. Returning IDPs Colombia 1950-2014", caption = "Source: National Agricultural Census")
+
+p1
+
+ggsave("~/Semestre 2023-I/Skills/Data/Figures/figure2.png", p1, height = 5, width = 8)
+
+p+ geom_bar(position = "fill") + geom_hline(yintercept = 0.5, alpha = 0.5) + scale_fill_manual(values = c(group_pal$green, group_pal$red)) + scale_color_manual(values = c(group_pal$green, group_pal$red))
+
+```
+
+```{r}
+year_disp_return <- as.data.frame.matrix(table(disp_households$P_S15P179B, disp_households$P_S15P180), stringsAsFactors = F)
+colnames(year_disp_return) <- c("retorno", "no_retorno")
+ 
+high_return <- year_disp_return[1] > year_disp_return[2]
+year_disp_return[high_return,]
+```
+Displaced people who lived in rural areas during 2014 had lower probability of returning to their land than not, almost independently of the year they were displaced on. 1997 is the only year with a significant higher probability of return. Why? Policy effects?
+
+Now check if there are differences regarding poverty perception of these households. 
+
+```{r}
+p <- ggplot(subset(disp_households, subset = P_S15P179B != 9999 & P_S15P177 != 9 & P_S15P179B > 1980), aes(x = as.numeric(P_S15P179B), fill = as_factor(P_S15P177), col = as_factor(P_S15P177)))
+
+p + geom_bar(alpha = 0.8) + green_theme() + scale_fill_manual(values = c(group_pal$green, group_pal$red)) + scale_color_manual(values = c(group_pal$green, group_pal$red))
+
+p+ geom_bar(position = "fill") + geom_hline(yintercept = 0.5, alpha = 0.5) + scale_fill_manual(values = c(group_pal$green, group_pal$red)) + scale_color_manual(values = c(group_pal$green, group_pal$red))
+
+```
+IDPs across high-displacement years (1980s-2014) are more likely to identify as poor in 2014 than to not do so.
+
+5. How do returning households think about their current situation? Variables: P_S15P177 Do you consider yourself poor: 1 yes, 2 no . P_S15P178: The actual life level of the household with respect to the one you had 5 years ago is: 1. Better, 2. Same, 3. Worse, 9. No info
+
+```{r}
+prop.table(table(ret_disp_households$P_S15P178)) # Situation wrt 5 years ago
+
+```
+During 2014 most returned IDPs feel they are equal or better than 5 years ago. However one fourth of the feel they are worse off. Morover, this is not a measure of how much better they are since they returned. To do this we filter by returned-IDPs that were displaced in 2008, and explore their responses. 
+
+```{r}
+ret_disp_households_2009 <- ret_disp_households %>%  filter(as.numeric(P_S15P179A) == 2008)
+prop.table(table(ret_disp_households_2009$P_S15P178))
+```
+There's no differential trend among households displaced in 2008. Around 75% feel their are better off or equal, while 25% feel they are worse off.
+
+## 2. Returning Households
+
+### 2.2 Spatial distribution
+```{r}
+library(sf)
+mun_shp <- read_sf("~/Semestre 2023-I/Skills/Data/Shapes/mun_shape/mpio.shp")
+
+mun_ret_shp <- ret_disp_households %>% group_by(P_MUNIC) %>% summarise(return = n()) %>% mutate(ln_return = log(return + 1))
+
+key1 <- mun_shp$MPIOS
+key2 <- unique(mun_ret_shp$P_MUNIC)
+
+# Explore length of keys.
+#table(nchar(key1))
+#table(nchar(key2))
+
+# Coincidence
+table(key2 %in% key1)
+# 4 municipalities are lost in the join.
+#Join
+mun_ret_shp <- left_join(mun_ret_shp, mun_shp, by = c("P_MUNIC" = "MPIOS"))
+```
+
+Map
+
+```{r}
+library(tmap)
+library(sfheaders)
+library(ggplot2)
+library(viridis)
+library(ggthemes)
+
+# Map of returned IDPs during 2014.
+
+attach(mun_ret_shp)
+g <- ggplot() + geom_sf(data = geometry, aes(fill = ln_return, col = ln_return)) + scale_fill_viridis_c(option = "plasma", direction = 1) + scale_color_viridis(option = "plasma", direction = 1) + guides(fill="none") + labs(color = "Log returned IDPs", caption = "Source: National Agricultural Census", title = "Figure 3. Returned IDPs 2014") + theme_map() + theme(legend.position = "bottom")
+g
+ggsave("~/Semestre 2023-I/Skills/Data/Figures/figure3.png", g, height = 4, width = 3)
+detach(mun_ret_shp)
+```
+
+
+### 2.3 Household composition of returning displaced families
+
+1. Load the persons dataset.
+
+```{r}
+path <- "~/Semestre 2023-I/Skills/Data/CNE-2014/Total_nacional(spss)/Total_nacional(spss)/Total_nacional/S15P(Personas).sav"
+person <- read_sav(path)
+```
+
+2. Keys exist for dwelling-household-person. Thus we can identify persons within the same household. To do this we need to know that the unit of observation of the census is the unit of agricultural production (UAP), which can contain various dwellings and households. For this reason the first key (ITER_HG) corresponds to an identifier of the household within the UAP. Thus, to create a unique household code we combine this key with the UAP key UC_UO.
+
+```{r}
+library(stringr)
+library(dplyr)
+# Reduce dimension of the dataframe by filtering by vereda (village of residence)
+cod_disp_ver <- ret_disp_households$COD_VEREDA
+ret_disp_person <- person %>% filter(COD_VEREDA %in% cod_disp_ver)
+
+# Function to subset last three characters of a string
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+
+# Create household identifier within UAP: Cod_hogar: P_S15P165B. We follow the same structure of the identifier in the household data set. 
+ret_disp_person <- ret_disp_person %>% 
+  mutate(ITER_HG = paste0(substrRight(paste0("000", P_S15P165A), 3), substrRight(paste0(0, P_S15P165B), 2)))
+
+# Filter
+ret_house_cod <- ret_disp_households$ITER_HG
+ret_disp_person <- ret_disp_person %>% filter(ITER_HG %in% ret_house_cod)
+
+# Overall household identifier
+ret_disp_person <- ret_disp_person %>% 
+  mutate(HOUSEHDL_COD = paste0(UC_UO, ITER_HG), person_cod = paste0(UC_UO, P_S15P165))
+```
+
+3. Now we have the universal household_key, allowing us to summarize statistics per household in the returning displaced population. We get statistics on: % of men and women in the house, age groups, time disposition within the household, ethnic composition, and heath affiliation type. "P_S15P168", "P_S15P169", "P_S15P170", "P_S15P172", "P_S15P176"
+
+
+```{r}
+# Variable of interest
+col <- c("P_S15P167","P_S15P168", "P_S15P169", "P_S15P170", "P_S15P172", "P_S15P176")
+# 
+ret_disp_person <- ret_disp_person %>% 
+  mutate(P_S15P169 =
+           # Convert continuous age variable into factor age
+           cut(P_S15P169, breaks = seq(0,115, 10), labels = levels(P_S15P169), include.lowest = TRUE)) %>%
+  # All variables to factor.
+  mutate_at(col, factor)
+
+#  Composition of each household in the data set.
+household_demo <- ret_disp_person %>%
+  group_by(HOUSEHDL_COD, P_S15P168, P_S15P169, P_S15P170, P_S15P172, P_S15P176) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  group_by(HOUSEHDL_COD) %>%
+  mutate(prop = count / sum(count))
+View(household_demo)
+
+colnames(household_demo) <- c("house_cod", "sex", "age" , "time_disp", "ethnicity" ,"heath_afl", "count", "prop_house")
+
+```
+### 2.4 Average household chars
+
+```{r}
+# Size
+house_size <- length(unique(ret_disp_person$person_cod))/ length(unique(household_demo$house_cod))
+# % with 1, 2 or more children 
+age <- household_demo %>% group_by(house_cod, age) %>% summarise(count = sum(count)) %>% spread(key = age, value = count) %>% select(1:12)
+# Dummy variables for one,  two child and three or more.
+age <- age %>% 
+  mutate(one_child = ifelse(`[0,10]`==1, 1, 0), two_child = ifelse(`[0,10]`== 2, 1, 0), threep_child = ifelse(`[0,10]`> 2, 1, 0)) 
+# Get proportion of each child.
+apply(age[,c("one_child", "two_child", "threep_child")], 2, function(x){100*sum(x, na.rm = T)/length(unique(age$house_cod))})
+```
+
+### 2.5 Sociodemographic statistics.
+
+```{r}
+# Households with single mothers.
+sing_moth <- ret_disp_person %>% 
+  # Filter women who are head of household, or children.
+  filter((P_S15P168 == 2 & P_S15P167 == 1) | (P_S15P169 == "[0,10]" | P_S15P169 == "(10,20]")) %>% group_by(HOUSEHDL_COD) %>% 
+  # Dummy variable of single mother households
+  summarise(sing_moth = case_when(
+    any(P_S15P167 == 3 | P_S15P167 == 5) & all(P_S15P167 != 2) ~ 1
+  ))
+
+# Single mothers
+100*sum(sing_moth$sing_moth, na.rm = T)/length(unique(ret_disp_person$HOUSEHDL_COD))
+
+# Elders
+eld_house <- ret_disp_person %>%
+  filter((P_S15P169 == "(70,80]" | P_S15P169 == "(90,100]" | P_S15P169 == "(100,110]"))
+
+100*length(unique(eld_house$HOUSEHDL_COD))/length(unique(ret_disp_person$HOUSEHDL_COD))
+
+```
+
+
+### 2.6 Education 
+
+```{r}
+library(janitor)
+attach(ret_disp_person)
+
+prop.table(table(ret_disp_person$P_S15P173))
+
+tab1 <- tabyl(ret_disp_person, P_S15P173) %>% select(4)
+# Literacy
+
+tab2 <- tabyl(ret_disp_person, P_S15P175A) # Education
+
+# Professional education IDPs
+sum(subset(tab2, P_S15P175A > 4 & P_S15P175A != 9)[, "valid_percent"])
+
+print(tab1)
+print(tab2)
+
+detach(ret_disp_person)
+```
+### 2.7 Children care and health
+
+```{r}
+# Where and with who do spend most of the time during weekdays
+tab3 <- tabyl(subset(ret_disp_person, P_S15P169 == "[0,10]"), P_S15P172)
+View(tab3)
+# Health affiliation
+tab4 <- tabyl(subset(ret_disp_person,), P_S15P176)
+print(tab4)
+```
+
+
+## 3. Poverty and returned IDPs municipality level.
+
+### 3.1 Join datasets
+
+```{r}
+library(readxl)
+# Poverty data municipality
+paneldata_char_mun <- read_dta("~/Semestre 2023-I/Skills/Data/Panel_Mun_CEDE/PANEL_CARACTERISTICAS_GENERALES(2022).dta")
+paneldata_char_mun <- paneldata_char_mun %>% mutate(codmpio = as.character(codmpio)) %>% filter(ano == 2018)
+
+# Pdet muinicipalities
+pdet <- read_excel("~/Semestre 2023-I/Skills/Data/Conflict_Data/MunicipiosPDET.xlsx")
+pdet <- pdet$`Código DANE Municipio`
+
+table(pdet %in% mun_shp$MPIOS)
+
+```
+
+#### 3.1.1 Correct keys
+
+```{r}
+# Correct key to merge.
+for (i in 1:length(pdet)[1]) {
+  if (nchar(pdet[i]) == 4) {
+    pdet[i] <- paste0("0", pdet[i])
+  }
+  }
+
+for (i in 1:dim(paneldata_char_mun)[1]) {
+  if (nchar(paneldata_char_mun[[i,"codmpio"]]) == 4) {
+    paneldata_char_mun[[i,"codmpio"]] <- paste0("0",paneldata_char_mun[[i,"codmpio"]])
+  }
+  }
+
+# Coincidence
+table(pdet %in% paneldata_char_mun$codmpio)
+table(mun_ret_shp$P_MUNIC %in% paneldata_char_mun$codmpio)
+```
+
+#### 3.1.2 Join
+
+```{r}
+mun_ret_shp1 <- mun_ret_shp %>% left_join(paneldata_char_mun, by = c("P_MUNIC" = "codmpio")) %>% mutate(pdet = P_MUNIC %in% pdet, gpacifica = factor(gpacifica))
+```
+
+### 3.2 Recieving Municipalities
+
+
+```{r}
+g <- ggplot(mun_ret_shp1, aes(x = ln_return, y = IPM, col = gpacifica)) +
+  geom_point(alpha = 0.3) + 
+  geom_smooth( method = "lm", se = F) + 
+  green_theme() + 
+  labs(title = "Figure 4. Returned IDPs and Poverty - Municipality level 2014", caption = "Source: CNA and CEDE") + ylab("Multidimensional Poverty Index") + xlab("Ln Returned IDPs") + 
+  guides(color = guide_legend(title = "Pacific Region"))
+
+# Mean IPM
+mean(mun_ret_shp1$IPM)
+
+g
+ggsave("~/Semestre 2023-I/Skills/Data/Figures/figure4.jpg", width = 8, height = 6)
+```
+
+### 3.3 Distance to capital and returning IDPs
+
+Now we get data on all municipalities, not just the ones receiving IDPs, and analyze the relationship with connectivity variables.
+
+```{r}
+#table(paneldata_char_mun$codmpio %in% households$P_MUNIC) # Key coindicence
+
+# Group_by mun
+house_mun <- households %>% group_by(P_MUNIC) %>% summarise(return = sum(ret, na.rm = T))
+
+# join
+house_mun <- left_join(house_mun, paneldata_char_mun, by = c("P_MUNIC" = "codmpio"))%>% mutate(return_prop = return/pobl_rur)
+```
+
+
+```{r}
+# Plot
+p <- ggplot(house_mun, aes(x = discapital, y = return_prop, color = IPM_rur)) + geom_point(size = 3, alpha = 0.6) + geom_smooth(method = "lm", se = F, color = "black") + scale_color_gradient2(low = "blue", mid = "gray", high = "red", midpoint = median(house_mun$discapital)) + labs(title = "Figure 5. Returned IDPs and Distance to Department Capital", caption = "Source: CNA and CEDE") + xlab("Distance to Department Capital (KMs)") + ylab("Returned IDPs/ Rural Population")
+p
+ggsave("~/Semestre 2023-I/Skills/Data/Figures/figure5.jpg", width = 8, height = 6)
+```
+
+Calculate the average distance to capital, wholesale market and secondary markets, weighted by the number of IDPs recieved.
+
+```{r}
+house_mun <- house_mun %>% mutate(ret_prop = return/sum(return))
+
+weighted.mean(house_mun$discapital, house_mun$ret_prop)
+weighted.mean(house_mun$dismdo, house_mun$ret_prop)
+weighted.mean(house_mun$distancia_mercado, house_mun$ret_prop)
+```
+
+# 4 Agriculture and crops
+
+## 4.1 Tidy data
+
+Select variables and read file. 
+
+```{r}
+library(haven)
+
+final_dest_name <- c()
+for (i in 1:11) {
+  w <- paste0("P_S6P61_SP", as.character(i))
+  final_dest_name <- c(final_dest_name, w)
+}
+
+chickens_name <- c()
+for (i in 1:5) {
+  w <- paste0("P_S7P91_SP", as.character(i))
+  chickens_name <- c(chickens_name, w)
+}
+
+tech_asist_names <- c()
+for (i in 1:11) {
+  w <- paste0("P_S11P135A_SP", as.character(i))
+  tech_asist_names <- c(tech_asist_names, w)
+}
+
+pay_asist_names <- c()
+for (i in 1:10) {
+  w <- paste0("P_S11P135B", as.character(i))
+  pay_asist_names <- c(pay_asist_names, w)
+}
+
+eff_asist_names <- c()
+for (i in 1:10) {
+  w <- paste0("P_S11P135C", as.character(i))
+  eff_asist_names <- c(eff_asist_names, w)
+}
+
+prod_unit <- read_sav("~/Semestre 2023-I/Skills/Data/CNE-2014/Total_nacional(spss)/Total_nacional(spss)/Total_nacional/S01_15(Unidad_productora).sav", col_select = c("UC_UO", "P_MUNIC", "ENCUESTA", "COD_VEREDA", "PRED_ETNICA","P_S3P9", "P_S3P10", "P_S3P12", "P_S3P14","P_S4P15","P_S4P16", "S05_TENENCIA", "P_S6P43", final_dest_name, "P_S6P71", "P_S7P90", chickens_name, "P_S11P134_SP1", "P_S11P135", tech_asist_names, pay_asist_names, eff_asist_names, "P_S11P136", "P_S11P136A", "P_S15P158A", "P_S15P158B"))
+
+col <- read_sav("~/Semestre 2023-I/Skills/Data/CNE-2014/Total_nacional(spss)/Total_nacional(spss)/Total_nacional/S01_15(Unidad_productora).sav", n_max = 1)
+
+```
+
+## 4.2 Agriculture and retuning IDPs
+
+### 4.2.1 Filter
+Filter by productive units with at least one displaced person.
+
+```{r}
+# Returned and displaced at prod_unit
+pro_unit_desp <- households %>% group_by(UC_UO) %>% summarise(ret = sum(ret, na.rm = T), disp = sum(disp, na.rm = T), househld = n(), prod_pers = sum(TOT_PROD_HOGAR, na.rm = T)) %>% filter(UC_UO != "00000000")
+
+agri_data <- left_join(pro_unit_desp, prod_unit, by = c("UC_UO"))
+
+agri_data_ret <- agri_data %>% filter(ret > 0) %>%  group_by(UC_UO) 
+```
+
+Agricultural data is constructed at the Productive-Unit level, which usually is much bigger than the household level. Moreover there's no household identifier within the agricultural data set.
+
+```{r}
+library(knitr)
+tab_crop <- mapply(table, agri_data_ret[,c("P_S6P43","P_S3P9", "P_S3P10", "P_S7P90", "P_S11P135", "P_S11P136", "P_S11P136A")])
+tab <- as.data.frame(bind_rows(tab_crop))
+tab <- 100*tab/rowSums(tab, na.rm = T)
+tab <- tab %>% select(c(2,4,6))
+rownames(tab) <- c("Crops","Self Consumption", "Sale", "Chickens", "Asistance", "Apply for Credit", "Aproved")
+colnames(tab) <- c("Yes", "No", "Not Applicable")
+tab
+```
+
+### 4.2.2 Decision making and land tenance 
+
+Question: P_S4P16
+
+```{r}
+mean(agri_data_ret$P_S4P16, na.rm = T)
+```
+
+### 4.2.3 Technichal assistance
+
+```{r}
+tab_asist <- mapply(table, agri_data_ret[,tech_asist_names])
+tab_asist_prop <- as.data.frame(bind_rows(tab_asist))
+tab_asist_prop <- 100*tab_asist_prop/rowSums(tab_asist_prop, na.rm = T)
+sort(tab_asist_prop, decreasing = T)
+```
+
+
+```{r}
+# Paid by households.
+prop.table(table(agri_data_ret$P_S11P135B1))
+prop.table(table(agri_data_ret$P_S11P135B6))
+prop.table(table(agri_data_ret$P_S11P135B8))
+```
+
+
+```{r}
+# Did it work for you?
+prop.table(table(agri_data_ret$P_S11P135C1))
+prop.table(table(agri_data_ret$P_S11P135C6))
+prop.table(table(agri_data_ret$P_S11P135C8))
+```
+
